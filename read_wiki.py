@@ -8,7 +8,7 @@ import copy
 acronyms = {                                         # here we gather all acronyms, to replace when querying wikipedia API
     'רוה"מ': 'ראש הממשלה',
     'צה"ל' : 'צבא ההגנה לישראל',
-    'הלמ"ס': 'לשכה מרכזית לסטטיסטיקה',
+    'הלמ"ס': 'הלשכה המרכזית לסטטיסטיקה',
     'משהב"ט': 'משרד הבטחון',
     'מע"מ' : 'מס ערך מוסף',
     'בי"ח' : 'בית חולים',
@@ -30,18 +30,10 @@ def get_synonyms(wikibase_item):
     entity = client.get(wikibase_item, load=True) # get a wikidata.Entity object for Operation Protective Edge
     return entity.data['aliases'] # data is a dict inside the Entity object, 'aliases' returns all aliases for all the languages which have at least one alias for the label
 
-def get_wikipedia_page_details(page_title):
-    try:
-        page = wikipedia.WikipediaPage(page_title)
-        return {'wiki_summary': page.summary, 'wiki_url': page.url}
-    except Exception as e:
-        print(f"enounter an error communicatingn Wikipedia's API for {page_title}: {e}")
-        return[""]
-
 
 def words_list_to_title(words_list):
     """
-    get words list, replace acrnyms and combine into a single string
+    get words list, replace acronyms and combine into a single string
     """
     fixed_title_words = []
     for word in words_list:
@@ -49,101 +41,141 @@ def words_list_to_title(words_list):
             fixed_title_words.append(acronyms[word])
         else:
             fixed_title_words.append(word)
-    return " ".join(fixed_title_words)
+    return " ".join(fixed_title_words).strip()
 
 
 def fix_entry_name_options(entry_name):
     """
-    fix the entry name to fit query
+    generate list of relevant queries based on a given entry_name
     """
-
+    wikipedia.set_lang('he')
     options = []
     results = []
 
     options.append(entry_name.replace("/"," ").split(" "))
+    options.append([word for word in entry_name.replace("המשרד",'').replace("משרד","").replace("/"," ").split(" ") if word !=''])
     if "/" in entry_name:
-        options.append(entry_name.split("/")[0].split(" "))
-        options.append(entry_name.split("/")[1].split(" "))
+        splitted = entry_name.split("/")
+        for new_option in splitted:
+            if new_option!='':
+                options.append([new_option])
 
     if "-" in entry_name:
-        options.append(entry_name.split("-")[0].split(" "))
-        options.append(entry_name.split("-")[1].split(" "))
+        splitted = entry_name.split("/")
+        for new_option in splitted:
+            if new_option!='':
+                options.append([new_option])
 
     for option in options:
         new_option = words_list_to_title(option)
+        if '"' not in new_option:
+            try:
+                wikipedia_search_suggestions = wikipedia.search(new_option)
+                for suggestion in wikipedia_search_suggestions:
+                    if Levenshtein.ratio(suggestion, new_option) > 0.7:
+                        print(f"added '{suggestion}' from wikipedia suggested entries for {option}")
+                        results.append(wikipedia.search(new_option)[0])
+            except Exception as e:
+                print(f"wiki alternatives search error for {new_option} (part of '{entry_name}' query): {e}")
+                pass
 
         if new_option in exception_entries.keys():                # verify we did not encounter past DisambiguationError for the value before
             results.append(exception_entries[new_option])
         else:
             results.append(words_list_to_title(option))
-    return results
+            if '"' in new_option:                                   # try also without apostrophes
+                results.append(words_list_to_title([new_option]))
+    return list(set(results))
 
+def wiki_search_terms(terms):
+    """
+    Get from the wikipedia API for term relevant page titles and details
+    """
+
+    if type(terms) == str:             # set the correct query string
+        titles=terms
+    elif type(terms)==list:
+        if len(terms)==1:
+            titles = terms[0]
+        else:
+            titles = "|".join(terms)
+
+    payload = {
+        "action": "query",
+        "prop":"info|extracts|pageprops",
+        "inprop":"url",
+        "exintro":True,
+        "explaintext":True,
+        "redirects": True,
+        "format": "json",
+        "titles": titles,
+    }
+
+    wikipedia_api_url = "https://he.wikipedia.org/w/api.php"
+    query_results = requests.get(wikipedia_api_url, payload).json()["query"]
+    query_results["pages"] = [result for result in list(query_results["pages"].values()) if 'missing' not in result]
+    return query_results
 
 def search_wikipedia(entry_name):
     optional_entries = fix_entry_name_options(entry_name)
-    # retrieve the first result title from wikipedia
-    wikipedia.set_lang('he')
-
-    def wiki_search_term(term):
-        """
-        Check on the wikipedia API for term relevant page titles
-        """
-        result = wikipedia.search(term)
-        if len(result) == 0:
-            return [""]
-        else:
-            return result
-
 
     try:                                                                    # pack and all relevant page titles (options) and their ratio score, to decide which one should be chosen
-        wikipedia_query_results = [x[0] for x in list(map(wiki_search_term, optional_entries))]
-        wiki_options_ratios = list(map(Levenshtein.ratio, wikipedia_query_results,optional_entries))
-        options = list(zip(wikipedia_query_results, wiki_options_ratios))
-        options = sorted(options, key=lambda x: x[1], reverse=True)
+        wikipedia_query_results = wiki_search_terms(optional_entries)
 
-        #print(f"options and ratios for {entry_name}: \n{options}\n")
-        first_option_query, first_option_score = options[0][0], options[0][1]           # logic for choosing the right entry+page
-        fixed_entry_name = first_option_query
-        best_score = first_option_score
+        if len(wikipedia_query_results["pages"]) > 1:
+            titles_to_compare = []
 
-        if len(options) > 1 and "משרד" in first_option_query:
-            second_option_query, second_option_score = options[1][0], options[1][1]
-            if second_option_score > 0.7:
-                fixed_entry_name = second_option_query
-                best_score = second_option_score
+            for page_index, page in enumerate(wikipedia_query_results["pages"]):
+                if "redirects" in wikipedia_query_results["pages"][page_index].keys():
+                    title_to_compare = wikipedia_query_results["pages"][page_index]["redirects"][0]["from"]
+
+                else:
+                    title_to_compare = wikipedia_query_results["pages"][page_index]["title"]
+
+                wikipedia_query_results["pages"][page_index]["title_to_compare"] = title_to_compare
+                titles_to_compare.append(title_to_compare)
+
+            wiki_options_ratios = list(map(Levenshtein.ratio, optional_entries, titles_to_compare))
+            options = list(zip(wikipedia_query_results["pages"], wiki_options_ratios))
+            options = sorted(options, key=lambda x: x[1], reverse=True)
+
+            first_option_query, first_option_score = (options[0][0], options[0][1])           # logic for choosing the right entry+page
+            fixed_entry_name = first_option_query["title_to_compare"]
+            best_score = first_option_score
+            results = first_option_query
+
+            second_option_query, second_option_score = (options[1][0], options[1][1])
+
+            if len(options) > 1 and "משרד" in first_option_query["title_to_compare"]:
+                if second_option_score > 0.7:
+                    fixed_entry_name = second_option_query["title_to_compare"]
+                    best_score = second_option_score
+                    results = second_option_query
 
 
-        if best_score < 0.5:
-            print(f"low ration of similiarity for {entry_name}, no data to be saved on table")
-            return {}
+            if best_score < 0.5:
+                print(f"low ration of similiarity for {entry_name}, no data to be saved on table")
+                return {}
 
+        else:
+            results = wikipedia_query_results["pages"][0]
 
     except Exception as e:
         print(f"wikipedia_query_result issue for {entry_name}: {e}")
         return {}
 
-    # get the wikipedia id and page title for the chosen page
-    wikipedia_api_url = f"https://he.wikipedia.org/w/api.php?action=query&prop=pageprops&ppprop=wikibase_item&redirects=1&format=json&titles={fixed_entry_name}"
-    page_details = list(requests.get(wikipedia_api_url).json()['query']['pages'].values())[0]
-
-    wiki_title = page_details['title']
-    try:
-        wikibase_item = page_details['pageprops']['wikibase_item']
-    except Exception as e:
-        print(f"Could not find wikibase item entry for {fixed_entry_name}: {e}")
-        wikibase_item = ""
-
     # look for snynyms using Wikidata
-    wiki_synonyms = dict(get_synonyms(wikibase_item))
-    if 'he' in wiki_synonyms.keys():
-        wiki_synonyms = [result['value'] for result in wiki_synonyms['he']]
+    if "pageprops" in results.keys() and "wikibase_item" in results["pageprops"].keys():
+            wikibase_item = results["pageprops"]["wikibase_item"]
+            wiki_synonyms = dict(get_synonyms(wikibase_item))
+            if 'he' in wiki_synonyms.keys():
+                wiki_synonyms = [result['value'] for result in wiki_synonyms['he']]
+            else:
+                wiki_synonyms = []
+
+            results['wiki_synonyms'] = wiki_synonyms
     else:
-        wiki_synonyms = []
+        print(f"can't find wikibase for synyms for {entry_name}: {results}")
 
-    # get the page summary
-    results = get_wikipedia_page_details(wiki_title)
 
-    results['wiki_title'] = wiki_title
-    results['wiki_synonyms'] = wiki_synonyms
-
-    return results
+    return {"wiki_title":results["title"], "wiki_summary":results["extract"], "wiki_synonyms":results["wiki_synonyms"], "wiki_url":results["fullurl"]}

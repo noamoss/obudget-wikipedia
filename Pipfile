@@ -15,6 +15,7 @@ sparqlwrapper = "*"
 wikipedia = "*"
 wikidata = "*"
 python-levenshtein = "*"
+python-language-server = {extras = ["all"], version = "*"}
 
 [dev-packages]
 

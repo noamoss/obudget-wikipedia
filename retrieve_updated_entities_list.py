@@ -29,6 +29,8 @@ def update_worksheet(worksheet, lines_range=(2,20)):
     Batch spreadsheet update (instead of a row-by-row.)
     """
 
+    from read_wiki import fix_entry_name_options
+
     # define the range in the spreadsheet to update
     start_row = lines_range[0]
     end_row = lines_range[1]
@@ -70,6 +72,13 @@ def update_worksheet(worksheet, lines_range=(2,20)):
 
         cell_counter +=1
 
+        if (cell_counter % row_length == 0):
+            try:
+                print(name," ---> ",entity_data["wiki_title"])
+            except:
+                print(name," ---> ", "No wiki title found")
+        if (cell_counter % (row_length*10) == 0):
+            print(f"line {cell_counter/row_length}")
     worksheet.update_cells(all_cells)                        # batch saving on google spreadsheet
 
     return retrieved
