@@ -5,6 +5,18 @@ from urllib.parse import quote
 import Levenshtein
 import copy
 
+
+obudget_wikipedia_categories_table = {
+    'משרד ממשלתי':
+        ['משרדי ממשלה בישראל',
+         'נשיא מדינת ישראל',
+         'הכנסת',
+         'ישראל: ארגונים ממשלתיים',
+         'משרד ראש הממשלה',
+        ],
+
+}
+
 acronyms = {                                         # here we gather all acronyms, to replace when querying wikipedia API
     'רוה"מ': 'ראש הממשלה',
     'צה"ל' : 'צבא ההגנה לישראל',
@@ -73,7 +85,7 @@ def fix_entry_name_options(entry_name):
                 wikipedia_search_suggestions = wikipedia.search(new_option)
                 for suggestion in wikipedia_search_suggestions:
                     if Levenshtein.ratio(suggestion, new_option) > 0.7:
-                        print(f"added '{suggestion}' from wikipedia suggested entries for {option}")
+                        #print(f"added '{suggestion}' from wikipedia suggested entries for {option}")
                         results.append(wikipedia.search(new_option)[0])
             except Exception as e:
                 print(f"wiki alternatives search error for {new_option} (part of '{entry_name}' query): {e}")
@@ -86,6 +98,21 @@ def fix_entry_name_options(entry_name):
             if '"' in new_option:                                   # try also without apostrophes
                 results.append(words_list_to_title([new_option]))
     return list(set(results))
+
+
+def extract_page_categories(page_data):
+    return [category["title"].replace('קטגוריה:','') for category in page_data["categories"]]
+
+
+def filter_page_by_category(obudget_category):
+    def check_relevant_entries_by_category(page_data):
+        try:
+            current_page_categories = set(page_data["categories"])
+            relevant_wiki_categories = set(obudget_wikipedia_categories_table[obudget_category])                     # translate the obudget category to the wikipedia categories list
+            return len(current_page_categories.intersection(relevant_wiki_categories)) > 0
+        except:
+            return False
+    return check_relevant_entries_by_category
 
 def wiki_search_terms(terms):
     """
@@ -102,7 +129,7 @@ def wiki_search_terms(terms):
 
     payload = {
         "action": "query",
-        "prop":"info|extracts|pageprops",
+        "prop":"info|extracts|pageprops|categories",
         "inprop":"url",
         "exintro":True,
         "explaintext":True,
@@ -114,14 +141,25 @@ def wiki_search_terms(terms):
     wikipedia_api_url = "https://he.wikipedia.org/w/api.php"
     query_results = requests.get(wikipedia_api_url, payload).json()["query"]
     query_results["pages"] = [result for result in list(query_results["pages"].values()) if 'missing' not in result]
+
+    for page_data in query_results["pages"]:
+        page_data["categories"] = extract_page_categories(page_data)
+
     return query_results
 
-def search_wikipedia(entry_name):
+
+
+def search_wikipedia(entry_name, obudget_category=None):
     optional_entries = fix_entry_name_options(entry_name)
 
     try:                                                                    # pack and all relevant page titles (options) and their ratio score, to decide which one should be chosen
         wikipedia_query_results = wiki_search_terms(optional_entries)
 
+        if "pages" in wikipedia_query_results and obudget_category != None:
+            makefilter = filter_page_by_category(obudget_category)
+            wikipedia_query_results["pages"] = list(filter(makefilter, wikipedia_query_results["pages"]))
+            if len(wikipedia_query_results["pages"]) == 0:
+                print(f"left with no results for {entry_name} after filtering for {obudget_category} obudget category. Better check it out")
         if len(wikipedia_query_results["pages"]) > 1:
             titles_to_compare = []
 
@@ -178,4 +216,4 @@ def search_wikipedia(entry_name):
         print(f"can't find wikibase for synyms for {entry_name}: {results}")
 
 
-    return {"wiki_title":results["title"], "wiki_summary":results["extract"], "wiki_synonyms":results["wiki_synonyms"], "wiki_url":results["fullurl"]}
+    return {"wiki_title":results["title"], "wiki_summary":results["extract"], "wiki_synonyms":results["wiki_synonyms"], "wiki_url":results["fullurl"], "wiki_categories":results["categories"]}

@@ -34,52 +34,75 @@ def update_worksheet(worksheet, lines_range=(2,20)):
     # define the range in the spreadsheet to update
     start_row = lines_range[0]
     end_row = lines_range[1]
+    print(f"start row: {start_row}   end row: {end_row}")
 
-    header = [cell.value for cell in worksheet.range("C1:G1")]   # get the header line keys
+    header = worksheet.row_values(1)   # get the header line keys
 
-    all_cells = worksheet.range(f"C{start_row}:G{end_row}")
+    all_cells = []
     summaries = []
     urls = []
     retrieved = {}
 
-    row_length = 5    # assuming we are updating columns B:G
-    number_of_rows = len(all_cells) / row_length
+    number_of_rows = end_row - start_row
 
-    cell_counter = 0
+    for row_index in range(start_row, end_row):
+        row_values = worksheet.row_values(row_index)
+        entity_data = {}
 
-    for cell in all_cells:
-        cell_type = header[cell_counter%row_length]
-
-        if cell_type =='name':
-            name = cell.value
-
-            #if cell_counter % (row_length * 10) == 0:
-            #        print(f"\nrow no. {int(cell_counter / row_length)}: {name}")
-
-            if name in retrieved.keys():                   # check if we alrady retrieved this entitiy details
-                entity_data = retrieved[name]
-                # print(f"{name} detailes were alrady available locally")
-
-            else:
-                entity_data = search_wikipedia(name)
-                # print(f"{name} detailes retrieved")
-
-        else:
-            if cell_type in entity_data:
-                cell.value = str(entity_data[cell_type])          # update the cell value with the retrieved data
-            else:
-                cell.value = ""
-
-        cell_counter +=1
-
-        if (cell_counter % row_length == 0):
+        for cell_index in range(len(header)):
             try:
-                print(name," ---> ",entity_data["wiki_title"])
+                cell_value = row_values[cell_index]
             except:
-                print(name," ---> ", "No wiki title found")
-        if (cell_counter % (row_length*10) == 0):
-            print(f"line {cell_counter/row_length}")
-    worksheet.update_cells(all_cells)                        # batch saving on google spreadsheet
+                cell_value = ''
+            cell_type = header[cell_index]
+            #print(f"row index {row_index} cell index {cell_index}, cell type {cell_type}")
+
+            if cell_type =='id':
+                pass
+            elif cell_type =='kind_he':
+                if cell_value == '' or cell_value == None:
+                    obudget_category = None
+                else:
+                    obudget_category = cell_value
+
+            elif cell_type =='name':
+                name = cell_value
+                if  name != '' and name != None:
+                    if name in retrieved.keys():                   # check if we alrady retrieved this entitiy details
+                        entity_data = retrieved[name]
+                        # print(f"{name} detailes were alrady available locally")
+
+                    else:
+                        #print(f"searching {name}, with obudget category {obudget_category}")
+                        entity_data = search_wikipedia(name, obudget_category)
+                        # print(f"{name} detailes retrieved")
+                else:
+                    entity_data = {}
+
+            else:
+                if cell_type in entity_data:
+                    cell_value = str(entity_data[cell_type])          # update the cell value with the retrieved data
+                    #print(f"{name} {cell_type}: {cell_value}")
+                else:
+                    #print(f"no {cell_type} value for {name}")
+                    cell_value = ''
+
+            try:
+                all_cells.append(gspread.Cell(row_index, cell_index+1, cell_value))
+            except Exception as e:
+                print(f"Error while updating row no. {row_index} column {cell_index} for {name}: {e}")
+
+        if "wiki_title" in entity_data:
+            print(f"{name} --> {entity_data['wiki_title']}")
+        else:
+            print(f" {name} ---> no entry")
+
+    try:
+        worksheet.update_cells(all_cells)                        # batch saving on google spreadsheet
+        print(f"updated google spreadsheet")
+
+    except Exception as e:
+        print(f" Error trying to update google spreadsheet")
 
     return retrieved
 
