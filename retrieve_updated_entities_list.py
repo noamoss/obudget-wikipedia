@@ -93,9 +93,9 @@ def update_worksheet(worksheet, lines_range=(2,20)):
                 print(f"Error while updating row no. {row_index} column {cell_index} for {name}: {e}")
 
         if "wiki_title" in entity_data:
-            print(f"{name} --> {entity_data['wiki_title']}")
+            print(f"{row_index}. {name} --> {entity_data['wiki_title']}")
         else:
-            print(f" {name} ---> no entry")
+            print(f"{row_index}. {name} ---> no wiki entry")
 
     try:
         worksheet.update_cells(all_cells)                        # batch saving on google spreadsheet
