@@ -5,6 +5,7 @@ from urllib.parse import quote
 import Levenshtein
 import copy
 
+wikipedia_api_url = "https://he.wikipedia.org/w/api.php"
 
 obudget_wikipedia_categories_table = {
     'משרד ממשלתי':
@@ -15,9 +16,46 @@ obudget_wikipedia_categories_table = {
          'משרד ראש הממשלה',
          'הוועדה לאנרגיה אטומית',
          'משרד האוצר',
+         'משרד הביטחון',
         ],
 
 }
+
+def update_obudget_wikipedia_categories_table():
+    """
+    Get from the wikipedia API subcategories of all given obudget categories ('he_kind')
+    """
+
+    PARAMS = {
+        'action': "query",
+        'list': "categorymembers",
+        'cmtitle': '',                    # this will be changed as we iterate
+        'cmtype':'subcat',
+        'format': "json"
+    }
+
+    api_update_urls = {
+        'משרד ממשלתי': 'קטגוריה: משרדי ממשלה בישראל',
+        }
+
+    for key, value in api_update_urls.items():
+        PARAMS["cmtitle"] = value
+        categoires = []
+        items_to_add = []
+        r = requests.get(wikipedia_api_url, PARAMS).json()
+        categories = [item['title'] for item in r['query']['categorymembers']]
+        items_to_add += [item['title'].replace('קטגוריה:','') for item in r['query']['categorymembers']]
+        for subcategory in categories:
+            try:
+                PARAMS["cmtitle"] = subcategory
+                r = requests.get(wikipedia_api_url, PARAMS).json()
+                items_to_add += [item['title'].replace('קטגוריה:','') for item in r['query']['categorymembers']]
+
+            except:
+                print(f" faild loading subcategories for {value}:{subcategory}")
+        obudget_wikipedia_categories_table[key] += items_to_add
+
+    return obudget_wikipedia_categories_table
 
 acronyms = {                                         # here we gather all acronyms, to replace when querying wikipedia API
     'רוה"מ': 'ראש הממשלה',
@@ -68,17 +106,17 @@ def fix_entry_name_options(entry_name):
 
     options.append(entry_name.replace("/"," ").split(" "))
     options.append([word for word in entry_name.replace("המשרד",'').replace("משרד","").replace("/"," ").split(" ") if word !=''])
+
     if "/" in entry_name:
         splitted = entry_name.split("/")
         for new_option in splitted:
             if new_option!='':
-                options.append([new_option])
-
+                options.append(new_option.split(" "))
     if "-" in entry_name:
         splitted = entry_name.split("/")
         for new_option in splitted:
             if new_option!='':
-                options.append([new_option])
+                options.append(new_option.split(" "))
 
     for option in options:
         new_option = words_list_to_title(option)
@@ -103,7 +141,13 @@ def fix_entry_name_options(entry_name):
 
 
 def extract_page_categories(page_data):
-    return [category["title"].replace('קטגוריה:','') for category in page_data["categories"]]
+    try:
+        if "categories" in page_data:
+            return [category["title"].replace('קטגוריה:','') for category in page_data["categories"]]
+        else:
+            return []
+    except Exception as e:
+        print(f"Could not extract categories for {page_data}\n \n {e}")
 
 
 def filter_page_by_category(obudget_category):
@@ -140,7 +184,6 @@ def wiki_search_terms(terms):
         "titles": titles,
     }
 
-    wikipedia_api_url = "https://he.wikipedia.org/w/api.php"
     query_results = requests.get(wikipedia_api_url, payload).json()["query"]
     query_results["pages"] = [result for result in list(query_results["pages"].values()) if 'missing' not in result]
 
