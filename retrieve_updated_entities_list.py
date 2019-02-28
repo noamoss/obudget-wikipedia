@@ -30,8 +30,10 @@ def update_worksheet(worksheet, lines_range=(2,20)):
     """
 
     from read_wiki import fix_entry_name_options
-    update_obudget_wikipedia_categories_table      # update the relevant wikipedia categories lists per obudget 'he_kind'
-
+    print("starting to update obudget_wikipedia_categories_table")
+    update_obudget_wikipedia_categories_table()      # update the relevant wikipedia categories lists per obudget 'he_kind'
+    print("done.")
+    
     # define the range in the spreadsheet to update
     start_row = lines_range[0]
     end_row = lines_range[1]

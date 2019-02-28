@@ -9,14 +9,9 @@ wikipedia_api_url = "https://he.wikipedia.org/w/api.php"
 
 obudget_wikipedia_categories_table = {
     'משרד ממשלתי':
-        ['משרדי ממשלה בישראל',
-         'נשיא מדינת ישראל',
+        ['נשיא מדינת ישראל',
          'הכנסת',
-         'ישראל: ארגונים ממשלתיים',
-         'משרד ראש הממשלה',
          'הוועדה לאנרגיה אטומית',
-         'משרד האוצר',
-         'משרד הביטחון',
         ],
 
 }
@@ -35,24 +30,37 @@ def update_obudget_wikipedia_categories_table():
     }
 
     api_update_urls = {
-        'משרד ממשלתי': 'קטגוריה: משרדי ממשלה בישראל',
+        'משרד ממשלתי':
+            [   'קטגוריה:משרד ראש הממשלה',
+                'קטגוריה:משרדי ממשלה בישראל',
+                'קטגוריה:ארגונים ממשלתיים',
+                'קטגוריה:צה"ל: זרועות ופיקודים',
+                'קטגוריה:בתי חולים פסיכיאטריים ממשלתיים',
+                'קטגוריה:משטרת ישראל',
+                'קטגוריה:המשרד לבטחון פנים',
+                'קטגוריה:משרד המשפטים',
+                'קטגוריה:ישראל: חוק ומשפט',
+                'קטגוריה:משרד הביטחון'
+            ]
+
         }
 
-    for key, value in api_update_urls.items():
-        PARAMS["cmtitle"] = value
-        categoires = []
+    for key, wiki_categories in api_update_urls.items():
+        subcategoires = []
         items_to_add = []
-        r = requests.get(wikipedia_api_url, PARAMS).json()
-        categories = [item['title'] for item in r['query']['categorymembers']]
-        items_to_add += [item['title'].replace('קטגוריה:','') for item in r['query']['categorymembers']]
-        for subcategory in categories:
-            try:
-                PARAMS["cmtitle"] = subcategory
-                r = requests.get(wikipedia_api_url, PARAMS).json()
-                items_to_add += [item['title'].replace('קטגוריה:','') for item in r['query']['categorymembers']]
+        for category in wiki_categories:
+            PARAMS["cmtitle"] = category
+            r = requests.get(wikipedia_api_url, PARAMS).json()
+            subcategories = [item['title'] for item in r['query']['categorymembers']]
+            items_to_add += [category.replace('קטגוריה:','')] + [item['title'].replace('קטגוריה:','') for item in r['query']['categorymembers']]
+            for subcategory in subcategories:
+                try:
+                    PARAMS["cmtitle"] = subcategory
+                    r = requests.get(wikipedia_api_url, PARAMS).json()
+                    items_to_add += [item['title'].replace('קטגוריה:','') for item in r['query']['categorymembers']]
 
-            except:
-                print(f" faild loading subcategories for {value}:{subcategory}")
+                except:
+                    print(f" failed loading subcategories for {subcategory}")
         obudget_wikipedia_categories_table[key] += items_to_add
 
     return obudget_wikipedia_categories_table
@@ -175,7 +183,8 @@ def wiki_search_terms(terms):
 
     payload = {
         "action": "query",
-        "prop":"info|extracts|pageprops|categories",
+        "prop":"extracts|pageprops|categories|info",
+        "cllimit": 200,
         "inprop":"url",
         "exintro":True,
         "explaintext":True,
@@ -189,7 +198,6 @@ def wiki_search_terms(terms):
 
     for page_data in query_results["pages"]:
         page_data["categories"] = extract_page_categories(page_data)
-
     return query_results
 
 
@@ -260,5 +268,7 @@ def search_wikipedia(entry_name, obudget_category=None):
     else:
         print(f"can't find wikibase for synyms for {entry_name}: {results}")
 
-
-    return {"wiki_title":results["title"], "wiki_summary":results["extract"], "wiki_synonyms":results["wiki_synonyms"], "wiki_url":results["fullurl"], "wiki_categories":results["categories"]}
+    try:
+        return {"wiki_title":results["title"], "wiki_summary":results["extract"], "wiki_synonyms":results["wiki_synonyms"], "wiki_url":results["fullurl"], "wiki_categories":results["categories"]}
+    except Exception as e:
+        print(f"error with the result record of {entry_name}: \n {results} \n {e}")
